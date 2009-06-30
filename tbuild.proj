@@ -1,0 +1,14 @@
+tm "crypto" {
+	version		0.1
+
+	requires {}
+
+	files {
+		rsa.tcl
+		blowfish.tcl
+	}
+
+	platform tcl
+}
+
+# vim: ft=tcl
