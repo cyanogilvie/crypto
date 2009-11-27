@@ -1310,7 +1310,6 @@ namespace eval crypto::rsa {
 		try {
 			lsort [dict keys $dat]
 		} on ok {keys} {
-			if {$keys eq [lsort {n e d p q dP dQ qInv}]} {
 			if {$keys eq [lsort {n e}]} {
 				return $dat
 			}
