@@ -1,5 +1,5 @@
-tm "crypto" {
-	version		0.1
+tm "crypto" { #<<<
+	version		0.2
 
 	requires {}
 
@@ -11,4 +11,23 @@ tm "crypto" {
 	platform tcl
 }
 
-# vim: ft=tcl
+#>>>
+application "blowfish" { #<<<
+	version 0.1
+
+	runtime rozkit8.6
+
+	requires {
+		crypto
+	}
+
+	files {
+		tools/blowfish.tcl
+	}
+
+	platform tcl
+}
+
+#>>>
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4

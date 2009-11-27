@@ -222,7 +222,7 @@ namespace eval crypto::rsa {
 		# Options:		Hash	- Hash function (hLen denotes the length in
 		#						  octets of the hash function output)
 		#				MGF		- Mask Generation Function
-		# Input:		M		- Messate to be encoded, an octet string of
+		# Input:		M		- Message to be encoded, an octet string of
 		#						  length at most emLen - 1 - 2blen (mLen
 		#						  denotes the length in octets of the message)
 		#				P		- encoding parameters, an octet string
@@ -249,7 +249,7 @@ namespace eval crypto::rsa {
 			throw {message_too_long} "Message too long"
 		}
 
-		# Generate an octet string P S consisting of emLen − mLen − 2hLen − 1
+		# Generate an octet string PS consisting of emLen − mLen − 2hLen − 1
 		# zero octets. The length of PS may be 0
 		set PS		[string repeat \0 [expr {$emLen - $mLen - 2*$hLen - 1}]]
 
@@ -276,8 +276,10 @@ namespace eval crypto::rsa {
 		if {$debug} {
 			set seed		[testvec2os seed]
 		} else {
-			set seed		[random_bytes $hLen]
+			#set seed		[random_bytes $hLen]
+			set seed		[crypto::blowfish::csprng $hLen]
 		}
+		#set seed		"12345678901234567890"
 
 		# Let dbMask = MGF(seed, emLen − hLen)
 		set dbMask		[apply $MGF $seed [expr {$emLen - $hLen}] $Hash]
@@ -421,7 +423,9 @@ namespace eval crypto::rsa {
 
 		# Let T be the empty octet string
 		set T	""
+		set Z	$Z
 
+		set count	0
 		# For i = 0 to l/hLen − 1, do
 		for {set i 0} {$i < int(ceil($l / double($hLen)))} {incr i} {
 			# Convert i to an octet string C of length 4 with the primitive
@@ -435,6 +439,7 @@ namespace eval crypto::rsa {
 			append T	[apply $Hash hash $Z$C]
 			#set h	[apply $Hash hash $Z$C]
 			#append T	$h
+			incr count
 		}
 
 		# Output the leading l octets of T as the octet string mask
@@ -568,7 +573,6 @@ namespace eval crypto::rsa {
 		#	- public key (n, e) is valid
 		variable debug
 
-		set hLen	[apply $Hash output_len]
 		set k		[expr {int(ceil([bitlength $n] / 8.0))}]
 
 		if {$debug} {
@@ -811,10 +815,12 @@ namespace eval crypto::rsa {
 		set range		[expr {$higher - $lower}]
 		set half_range	[expr {$range >> 1}]
 		set bytes	[expr {int(ceil(([bitlength $half_range]+$extra) / 8.0))}]
-		set base	[OS2IP [random_bytes $bytes]]
+		#set base	[OS2IP [random_bytes $bytes]]
+		set base	[OS2IP [crypto::blowfish::csprng $bytes]]
 		# Although $base<<1 is always even, modulo ($range+1) can make it odd
 		# again, which is then overcorrected for by the (1-($lower % 2))
-		expr {(($base<<1) % ($range+1)) + $lower + (1 - ($lower % 2))}
+		#expr {(($base<<1) % ($range+1)) + $lower + (1 - ($lower % 2))}
+		expr {(($base % ($half_range+1)) << 1) + $lower + (1 - ($lower % 2))}
 	}
 
 	#>>>
@@ -824,7 +830,8 @@ namespace eval crypto::rsa {
 
 		set range		[expr {$higher - $lower}]
 		set bytes	[expr {int(ceil(([bitlength $range]+$extra) / 8.0))}]
-		set base	[OS2IP [random_bytes $bytes]]
+		#set base	[OS2IP [random_bytes $bytes]]
+		set base	[OS2IP [crypto::blowfish::csprng $bytes]]
 		expr {($base % ($range+1)) + $lower}
 	}
 
@@ -962,7 +969,8 @@ namespace eval crypto::rsa {
 								}
 
 								# 8.5.3. Set b ← b² mod p (= a**(w(2**j)) mod p)
-								set b	[expr {($b**2) % $p}]
+								#set b	[expr {($b**2) % $p}]
+								set b	[modexp $b 2 $p]
 
 								# 8.5.4. If b = 1, then return to step 2 (p is
 								# composite)
@@ -1299,6 +1307,15 @@ namespace eval crypto::rsa {
 		set dat	[chan read $h]
 		close $h
 
+		try {
+			lsort [dict keys $dat]
+		} on ok {keys} {
+			if {$keys eq [lsort {n e d p q dP dQ qInv}]} {
+			if {$keys eq [lsort {n e}]} {
+				return $dat
+			}
+		} on error {} {}
+
 		load_asn1_pubkey_from_value $dat
 	}
 
@@ -1442,6 +1459,14 @@ namespace eval crypto::rsa {
 		set dat	[chan read $h]
 		close $h
 
+		try {
+			lsort [dict keys $dat]
+		} on ok {keys} {
+			if {$keys eq [lsort {n e d p q dP dQ qInv}]} {
+				return $dat
+			}
+		} on error {} {}
+
 		set base64_key	""
 		set inkey		0
 		foreach line [split $dat \n] {
@@ -1495,7 +1520,9 @@ namespace eval crypto::rsa {
 
 	#>>>
 	proc random_bytes {bytecount} { #<<<
-		set h	[open /dev/random r]
+		#set h	[open /dev/random r]
+		#puts stderr "WARNING: fudging random numbers.  Under no circumstances allow this into production"
+		set h	[open /dev/urandom r]
 		try {
 			chan configure $h -translation binary -encoding binary
 			#puts "reading $bytecount random bytes"
