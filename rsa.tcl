@@ -1307,6 +1307,11 @@ namespace eval crypto::rsa {
 		set dat	[chan read $h]
 		close $h
 
+		load_asn1_pubkey_from_value $dat
+	}
+
+	#>>>
+	proc load_asn1_pubkey_from_value {dat} { #<<<
 		try {
 			lsort [dict keys $dat]
 		} on ok {keys} {
@@ -1315,11 +1320,6 @@ namespace eval crypto::rsa {
 			}
 		} on error {} {}
 
-		load_asn1_pubkey_from_value $dat
-	}
-
-	#>>>
-	proc load_asn1_pubkey_from_value {dat} { #<<<
 		set base64_key	""
 		set inkey		0
 		foreach line [split $dat \n] {

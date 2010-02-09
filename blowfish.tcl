@@ -348,7 +348,7 @@ namespace eval crypto::blowfish {
 
 		set bytelen	[string length $bytes]
 		if {$bytelen % 8 != 0} {
-			throw {invalid_plaintext_length} "ECB mode requires input to be a multiple of blocksize (64 bits)"
+			throw {invalid_plaintext_length} "ECB mode requires input to be a multiple of blocksize (64 bits): $bytelen"
 		}
 
 		if {$bytelen < 8192} {
@@ -360,8 +360,8 @@ namespace eval crypto::blowfish {
 
 			return [binary format I* $oints]
 		} else {
-			# Use a less memory intesive method - the faster one above would be
-			# using more than 1.5MB for a 50kb message
+			# Use a less memory intesive method - the faster one above would
+			# use more than 1.5MB for a 50kb message
 			set O	""
 			for {set o 0} {$o < $bytelen} {incr o 8192} {
 				binary scan [string range $bytes $o $o+8192] Iu* ints
@@ -385,7 +385,7 @@ namespace eval crypto::blowfish {
 
 		set bytelen	[string length $bytes]
 		if {$bytelen % 8 != 0} {
-			throw {invalid_plaintext_length} "ECB mode requires input to be a multiple of blocksize (64 bits)"
+			throw {invalid_plaintext_length} "ECB mode requires input to be a multiple of blocksize (64 bits): $bytelen"
 		}
 
 		if {$bytelen < 8192} {
@@ -433,7 +433,7 @@ namespace eval crypto::blowfish {
 
 		set bytelen	[string length $bytes]
 		if {$bytelen % 8 != 0} {
-			throw {invalid_plaintext_length} "ECB mode requires input to be a multiple of blocksize (64 bits)"
+			throw {invalid_plaintext_length} "ECB mode requires input to be a multiple of blocksize (64 bits): $bytelen"
 		}
 
 		if {$bytelen < 8192} {
@@ -567,7 +567,8 @@ namespace eval crypto::blowfish {
 
 	#>>>
 	proc randbytes {bytecount} { #<<<
-		set h	[open /dev/random r]
+		#set h	[open /dev/random r]
+		set h	[open /dev/urandom r]
 		try {
 			chan configure $h -translation binary -encoding binary -blocking 1
 			chan read $h $bytecount
