@@ -555,6 +555,54 @@ namespace eval crypto::rsa {
 	}
 
 	#>>>
+	proc RSASP {n d m} { #<<<
+		# RSA private key decryption
+		# Input:	n	- modulus
+		#			d	- private exponent
+		#			m	- message representative, an integer between
+		#				  0 and n-1
+		# Output:	s	- ciphertext representative, an integer between
+		#				  0 and n-1
+		# Throws:	message_representative_out_of_range
+		# Assumptions:
+		#	- private key (d, n) is valid
+
+		# If the message representative c is not between 0 and n − 1,
+		# output "message representative out of range" and stop
+		if {$m < 0 || $m > $n+1} {
+			throw {message_representative_out_of_range} \
+					"Message representative out of range"
+		}
+
+		# Let s = c**d % n
+		modexp $m $d $n
+	}
+
+	#>>>
+	proc RSAVP {n e s} { #<<<
+		# RSA public key encryption
+		# Input:	n	- RSA public key (modulus)
+		#			e	- RSA public key (public exponent)
+		#			s	- ciphertext representative, an integer between
+		#				  0 and n-1
+		# Output:	m	- message representative, an integer between
+		#				  0 and n-1
+		# Throws:	ciphertext_representative_out_of_range
+		# Assumptions:
+		#	- public key (n, e) is valid
+
+		# If the ciphertext representative m is not between 0 and n − 1, output
+		# "ciphertext representative out of range" and stop
+		if {$s < 0 || $s > $n-1} {
+			throw {ciphertext_representative_out_of_range} \
+					"Ciphertext representative out of range"
+		}
+
+		# Let m = s**e % n
+		modexp $s $e $n
+	}
+
+	#>>>
 	proc RSAES-OAEP-Encrypt {n e M P Hash MGF} { #<<<
 		# RSA Encrypt
 		# Options:	Hash	- Hash function
@@ -661,6 +709,149 @@ namespace eval crypto::rsa {
 		# output "decryption error" and stop
 		try {
 			set m	[RSADP $K $c]
+		} trap {ciphertext_representative_out_of_range} {} {
+			throw {decryption_error} "Ciphertext is out of range"
+		}
+
+
+		# Remark:
+		# It is important that the errors in steps 4 and 5 are
+		# indistinguishable, otherwise an adversary may be able to extract
+		# useful information from the type of error occurred.  In particular,
+		# the error messages in steps 4 and 5 must be identical.  Moreover, the
+		# execution time of the decryption operation must not reveal whether an
+		# error has occurred.  One way of achieving this is as follows: In case
+		# of error in step 4, proceed to step 5 with EM set to a string of zero
+		# octets.
+
+
+		# 4. Convert the message representative m to an encoded message EM of
+		# length k − 1 octets
+		#             EM = I2OSP(m, k − 1)
+		# If I2OSP outputs "integer too large", then output "decryption error"
+		# and stop
+		try {
+			set EM		[I2OSP $m [expr {$k - 1}]]
+		} trap {integer_too_large} {} {
+			set EM		[string repeat \0 [expr {$k - 1}]]
+		}
+
+		# 5. Apply the EME-OAEP decoding operation to the encoded message EM
+		# and the encoding parameters P to recover a message M:
+		#             M = EME-OAEP-Decode(EM, P)
+		# If the decoding operation outputs "decoding error", then output
+		# "decryption error" and stop
+		try {
+			set M	[EME-OAEP-Decode $EM $P $Hash $MGF]
+		} trap {decoding_error} {} {
+			throw {decryption_error} "Decryption error"
+		}
+
+		# Output the message M
+		return $M
+	}
+
+	#>>>
+	proc RSAES-OAEP-Sign {n d M P Hash MGF} { #<<<
+		# RSA Encrypt
+		# Options:	Hash	- Hash function
+		#			MGF		- Mask Generation Function
+		# Input:	n		- our RSA private key (modulus)
+		#			d		- our RSA private key (private exponent)
+		#			M		- message to be encrypted, an octet string of length
+		#					  at most k - 2 - 2hLen, where k is the length in
+		#					  octets of the modulus n and hLen is the length in
+		#					  octets of the hash function output for EME-OAEP
+		#			P		- encoding parameters, an octet string that may be
+		#					  empty
+		# Output:	C		- ciphertext, an octet string of length k
+		# Throws:	message_too_long
+		# Assumptions:
+		#	- public key (n, e) is valid
+		variable debug
+
+		set k		[expr {int(ceil([bitlength $n] / 8.0))}]
+
+		if {$debug} {
+			if {$M ne [testvec2os M]} {
+				puts stderr "M doesn't match:\n[binary encode hex $M]\n[binary encode hex [testvec2os M]]"
+			}
+		}
+
+		# 1. Apply the EME-OAEP encoding operation to the message M and the
+		# encoding parameters P to produce an encoded message EM of length
+		# k − 1 octets:
+		#             EM = EME-OAEP-Encode(M, P, k − 1)
+		# If the encoding operation outputs "message too long", then output
+		# "message too long" and stop
+		set EM	[EME-OAEP-Encode $M $P [expr {$k - 1}] $Hash $MGF]
+
+		if {$debug} {
+			if {$EM ne [testvec2os EM]} {
+				puts stderr "EM doesn't match:\n[binary encode hex $EM]\n[binary encode hex [testvec2os EM]]"
+			}
+		}
+
+		# 2. Convert the encoded message EM to an integer message
+		# representative m:
+		#             m = OS2IP(EM)
+		set m	[OS2IP $EM]
+
+		# 3. Apply the RSAEP encryption primitive to the public key (n, e) and
+		# the message representative m to produce an integer ciphertext
+		# representative c:
+		#             c = RSASP((n, d), m)
+		set c	[RSASP $n $d $m]
+
+		# 4. Convert the ciphertext representative c to a ciphertext C of
+		# length k octets:
+		#             C = I2OSP(c, k)
+		set C	[I2OSP $c $k]
+
+		# 5. Output the ciphertext C
+		return $C
+	}
+
+	#>>>
+	proc RSAES-OAEP-Verify {n e C P Hash MGF} { #<<<
+		# RSA Decrypt
+		# Options:		Hash	- Hash function used for EME-OAEP
+		#				MGF		- Mask Generation Function used for EME-OAEP
+		# Input:		e		- sender's RSA public key, public exponent
+		#				n		- sender's RSA public key, modulus
+		#				C		- ciphertext to be decrypted, an octet string
+		#						  of length k, where k is the length in octets
+		#						  of the modulus n
+		#				P		- encoding parameters, an octet string that may
+		#						  be empty
+		# Output:		M		- message, an octet string of length at most
+		#						  k - 2 - 2*hLen, where hLen is the length in
+		#						  octets of the hash function output for
+		#						  EME-OAEP
+		# Throws:	decryption_error
+		# Assumptions:
+		#	- private key K is valid
+
+		set k	[expr {int(ceil([bitlength $n]/8.0))}]
+
+		# 1. If the length of the ciphertext C is not k octets, output
+		# "decryption error" and stop
+		if {[string length $C] != $k} {
+			throw {decryption_error} "Ciphertext length is invalid"
+		}
+
+		# 2. Convert the ciphertext C to an integer ciphertext representative c
+		#             c = OS2IP(C)
+		set c	[OS2IP $C]
+
+		# 3. Apply the RSADP decryption primitive to the private key K and the
+		# ciphertext representative c to produce an integer message
+		# representative m:
+		#             m = RSAVP(n, e, c)
+		# If RSADP outputs "ciphertext representative out of range", then
+		# output "decryption error" and stop
+		try {
+			set m	[RSAVP $n $e $c]
 		} trap {ciphertext_representative_out_of_range} {} {
 			throw {decryption_error} "Ciphertext is out of range"
 		}
