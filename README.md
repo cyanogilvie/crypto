@@ -70,6 +70,11 @@ set plaintext    [encoding convertfrom utf-8 [crypto::blowfish::decrypt_cbc $ks 
 # $plaintext is "hello, world"
 ~~~
 
+Building
+--------
+This uses tbuild to build the .tm.  You very likely don't have tbuild, so
+just use the pre-built .tm included in the repo.
+
 Security
 --------
 While I have been careful to adhere to the implementation guidelines as
