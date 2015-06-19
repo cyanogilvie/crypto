@@ -385,6 +385,78 @@ namespace eval crypto::rsa {
 	}
 
 	#>>>
+	proc EMSA-PKCS1-V1_5-ENCODE {M emLen Hash} { #<<<
+		# Implementation of section 9.2 of rfc3447
+		#
+		# Options:		Hash	- Hash function (hLen denotes the length in
+		#						  octets of the hash function output)
+		# Input:		M		- Message to be encoded
+		#				emLen	- Intended length in octets of the encoded
+		#						  message, at least tLen + 11, where tLen is
+		#						  the octet length of the DER encoding T of a
+		#						  certain value computed during the encoding
+		#						  operation
+		# Output:		EM		- Encoded message, an octet string of length
+		#						  emLen
+		# Throws:	message_too_long, emLen_too_short, padding_too_short
+
+		set hLen	[apply $Hash output_len]
+
+		# Apply the hash function to the message M to produce a hash value H:
+		# H = Hash(M).
+		#
+		# If the hash function outputs "message too long," output "message
+		# too long" and stop.
+		set H		[apply $Hash hash $M]
+
+		# Encode the algorithm ID for the hash function and the hash value
+		# into an ASN.1 value of type DigestInfo (see Appendix A.2.4) with
+		# the Distinguished Encoding Rules (DER), where the type DigestInfo
+		# has the syntax
+		#
+		# DigestInfo ::= SEQUENCE {
+		#     digestAlgorithm AlgorithmIdentifier,
+		#     digest OCTET STRING
+		# }
+		#
+		# The first field identifies the hash function and the second
+		# contains the hash value.  Let T be the DER encoding of the
+		# DigestInfo value (see the notes below) and let tLen be the length
+		# in octets of T.
+		set T [asn::asnSequence \
+			[apply $Hash AlgorithmIdentifier] \
+			[::asn::asnOctetString $H] \
+		]
+		#set T	[apply $Hash DigestInfoPrefix]$H
+		set tLen	[string length $T]
+
+		# If emLen < tLen + 11, output "intended encoded message length too
+		# short" and stop.
+		if {$emLen < $tLen + 11} {
+			throw emLen_too_short "intended encoded message length too short"
+		}
+
+		# Generate an octet string PS consisting of emLen - tLen - 3 octets
+		# with hexadecimal value 0xff.  The length of PS will be at least 8
+		# octets.
+		set PS	[string repeat \xff [expr {$emLen - $tLen - 3}]]
+		if {[string length $PS] < 8} {
+			# This check is reduntant given the emLen_too_short check
+			throw padding_too_short "padding must be at least 8 octents, is: [string length $PS]"
+		}
+
+		# Concatenate PS, the DER encoding T, and other padding to form the
+		# encoded message EM as
+		# 
+		#    EM = 0x00 || 0x01 || PS || 0x00 || T.
+		set EM	""
+		append EM	\0 \1 $PS \0 $T
+
+		# Output EM.
+		set EM
+	}
+
+	#>>>
 	proc xor {a b} { #<<<
 		binary scan $a cu* abytes
 		binary scan $b cu* bbytes
@@ -425,7 +497,6 @@ namespace eval crypto::rsa {
 		set T	""
 		set Z	$Z
 
-		set count	0
 		# For i = 0 to l/hLen − 1, do
 		for {set i 0} {$i < int(ceil($l / double($hLen)))} {incr i} {
 			# Convert i to an octet string C of length 4 with the primitive
@@ -439,7 +510,6 @@ namespace eval crypto::rsa {
 			append T	[apply $Hash hash $Z$C]
 			#set h	[apply $Hash hash $Z$C]
 			#append T	$h
-			incr count
 		}
 
 		# Output the leading l octets of T as the octet string mask
@@ -569,7 +639,7 @@ namespace eval crypto::rsa {
 
 		# If the message representative c is not between 0 and n − 1,
 		# output "message representative out of range" and stop
-		if {$m < 0 || $m > $n+1} {
+		if {$m < 0 || $m > $n-1} {
 			throw {message_representative_out_of_range} \
 					"Message representative out of range"
 		}
@@ -892,6 +962,64 @@ namespace eval crypto::rsa {
 
 		# Output the message M
 		return $M
+	}
+
+	#>>>
+	proc RSASSA-PKCS1-V1_5-SIGN {K M Hash} { #<<<
+		# Implementation of section 8.2.1 of rfc3447
+		#
+		# Input:	K		- Signer's RSA private key
+		#			M		- Message to be signed, an octet string
+		# Output:	S		- Signature, an octet string of length k, where k
+		#					  is the length in octets of the RSA modulus n
+		# Throws: message_too_long, RSA_modulus_too_short
+		# Assumptions:
+		#	- private key K is valid
+
+		set k	[expr {[bitlength [dict get $K n]] / 8}]
+
+		# EMSA-PKCS1-v1_5 encoding: Apply the EMSA-PKCS1-v1_5 encoding
+		# operation (Section 9.2) to the message M to produce an encoded
+		# message EM of length k octets:
+		#
+		#    EM = EMSA-PKCS1-V1_5-ENCODE (M, k).
+		#
+		# If the encoding operation outputs "message too long," output
+		# "message too long" and stop.  If the encoding operation outputs
+		# "intended encoded message length too short," output "RSA modulus
+		# too short" and stop.
+		try {
+			set EM	[EMSA-PKCS1-V1_5-ENCODE $M $k $Hash]
+		} trap message_too_long {} {
+			# This is redundant, but made explicit here to match the rfc
+			throw message_too_long "message too long"
+		} trap emLen_too_short {} {
+			throw RSA_modulus_too_short "RSA modulus too short"
+		}
+
+		# RSA signature:
+		#
+		# a. Convert the encoded message EM to an integer message
+		#    representative m (see Section 4.2):
+		#
+		#       m = OS2IP (EM).
+		set m	[OS2IP $EM]
+
+		# b. Apply the RSASP1 signature primitive (Section 5.2.1) to the RSA
+		#    private key K and the message representative m to produce an
+		#    integer signature representative s:
+		#
+		#       s = RSASP1 (K, m).
+		set s	[RSASP [dict get $K n] [dict get $K d] $m]
+
+		# c. Convert the signature representative s to a signature S of
+		#    length k octets (see Section 4.1):
+		#
+		#       S = I2OSP (s, k).
+		set S	[I2OSP $s $k]
+
+		# Output the signature S.
+		set S
 	}
 
 	#>>>
@@ -1592,19 +1720,10 @@ namespace eval crypto::rsa {
 	}
 
 	#>>>
-	proc asnGetSequence {bytesvar} { #<<<
+	proc asnGetLength {bytesvar ofsvar} { #<<<
 		upvar $bytesvar bytes
+		upvar $ofsvar ofs
 
-		set ofs		0
-		# GetByte <<<
-		set tag	[string index $bytes $ofs]
-		if {$tag ne "\x30"} {
-			throw {parse_error} "Expect a sequence tag at ofs $ofs, got [binary encode hex $tag]"
-		}
-		incr ofs
-		# GetByte >>>
-
-		# GetLength <<<
 		binary scan [string index $bytes $ofs] cu length
 		if {$length == 0x80} {
 			throw {parse_error} "Indefinite length BER encoding not yet supported"
@@ -1622,15 +1741,61 @@ namespace eval crypto::rsa {
 			# GetBytes >>>
 
 			switch -- $len_length {
-				1 {binary scan $intbytes cu seqlength}
-				2 {binary scan $intbytes Su seqlength}
-				3 {binary scan \x00$intbytes Iu seqlength}
-				4 {binary scan $intbytes Iu seqlength}
+				1 {binary scan $intbytes cu length}
+				2 {binary scan $intbytes Su length}
+				3 {binary scan \x00$intbytes Iu length}
+				4 {binary scan $intbytes Iu length}
 				default {
-					scan [binary encode hex $intbytes] %llx seqlength
+					scan [binary encode hex $intbytes] %llx length
 				}
 			}
 		}
+
+		set length
+	}
+
+	#>>>
+	proc asnGetOctetString {bytesvar} { #<<<
+		upvar $bytesvar bytes
+
+		set ofs		0
+		# GetByte <<<
+		set tag	[string index $bytes $ofs]
+		if {$tag ne "\x04"} {
+			throw {parse_error} "Expect a sequence tag at ofs $ofs, got [binary encode hex $tag]"
+		}
+		incr ofs
+		# GetByte >>>
+
+		# GetLength <<<
+		set seqlength	[asnGetLength bytes ofs]
+		# GetLength >>>
+
+		# GetBytes <<<
+		set sequence	[string range $bytes $ofs [expr {$ofs+$seqlength-1}]]
+		incr ofs $seqlength
+		# GetBytes >>>
+
+		set bytes	[string range $bytes $ofs end]
+
+		return $sequence
+	}
+
+	#>>>
+	proc asnGetSequence {bytesvar} { #<<<
+		upvar $bytesvar bytes
+
+		set ofs		0
+		# GetByte <<<
+		set tag	[string index $bytes $ofs]
+		if {$tag ne "\x30"} {
+			throw {parse_error} "Expect a sequence tag at ofs $ofs, got [binary encode hex $tag]"
+		}
+		incr ofs
+		# GetByte >>>
+
+		# GetLength <<<
+		set seqlength	[asnGetLength bytes ofs]
 		# GetLength >>>
 
 		# GetBytes <<<
@@ -1698,6 +1863,15 @@ namespace eval crypto::rsa {
 		switch -- $cmd {
 			input_limit	{return [expr {2**61-1}]}
 			output_len	{return 20}
+			AlgorithmIdentifier {
+				package require asn
+				asn::asnSequence \
+					[asn::asnObjectIdentifier {1 3 14 3 2 26}] \
+					]asn::asnNull]
+			}
+			DigestInfoPrefix {
+				binary decode hex {30 21 30 09 06 05 2b 0e 03 02 1a 05 00 04 14}
+			}
 			hash {
 				package require sha1
 
@@ -1705,6 +1879,30 @@ namespace eval crypto::rsa {
 				return [sha1::sha1 -bin $in]
 			}
 			default {throw {invalid_cmd} "Invalid hash command"}
+		}
+	}}
+
+	#>>>
+	variable sha256 {{cmd args} { #<<<
+		switch -- $cmd {
+			input_limit	{return [expr {2**64-1}]}
+			output_len	{return 32}
+			AlgorithmIdentifier {
+				package require asn
+				asn::asnSequence \
+					[asn::asnObjectIdentifier {2 16 840 1 101 3 4 2 1}] \
+					[asn::asnNull]
+			}
+			DigestInfoPrefix {
+				binary decode hex {30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20}
+			}
+			hash {
+				package require hash
+				binary decode hex [hash::sha256 [lindex $args 0]]
+			}
+			default {
+				throw invalid_cmd "Invalid hash command"
+			}
 		}
 	}}
 

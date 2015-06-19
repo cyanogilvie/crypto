@@ -1,5 +1,5 @@
 tm "crypto" { #<<<
-	version		0.3
+	version		0.5
 
 	requires {}
 
@@ -15,7 +15,7 @@ tm "crypto" { #<<<
 application "blowfish" { #<<<
 	version 0.1
 
-	runtime rozkit8.6
+	runtime cfkit8.6
 
 	requires {
 		crypto
