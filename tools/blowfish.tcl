@@ -19,6 +19,24 @@ namespace eval [file tail $argv0] {
 	}
 
 	#>>>
+	proc encrypt key { #<<<
+		package require crypto
+		set ks	[crypto::blowfish::init_key $key]
+		set iv	[crypto::blowfish::randbytes 8]
+		set plaintext	[encoding convertto utf-8 [chan read stdin]]
+		puts [binary encode base64 $iv[crypto::blowfish::encrypt_cbc $ks $plaintext $iv]]
+	}
+
+	#>>>
+	proc decrypt key { #<<<
+		package require crypto
+		set ks	[crypto::blowfish::init_key $key]
+		set bin	[binary decode base64 [chan read stdin]]
+		set iv	[string range $bin 0 7]
+		puts -nonewline [encoding convertfrom utf-8 [crypto::blowfish::decrypt_cbc $ks [string range $bin 8 end] $iv]]
+	}
+
+	#>>>
 }
 
 try {

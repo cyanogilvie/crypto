@@ -1,5 +1,29 @@
 # vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
 
+# Copyright 2009-2015 Cyan Ogilvie.  See license.terms for license.
+# Most of the in-line comments are taken directly from the standards documents:
+# https://www.inf.pucrs.br/~calazans/graduate/TPVLSI_I/RSA-oaep_spec.pdf and
+# rfc3447.
+# Those comments are copyright their original authors.  The purpuse of
+# including them in this source code is to facilitate auditing the code
+# against the specification.
+
+# While I have been careful to adhere to the implementation guidelines as
+# closely as possible, no cryptographic audit has been performed on this code
+# and I make no warrenties as to its correctness or security.  You are
+# encouraged to examine the code yourself or get a qualified cryptographer to
+# audit this code before using it in an application with specific security
+# requirements.
+#
+# In particular it should be noted that key privacy is poor - the limitations
+# of working in a scripting language means that the keys could be leaked
+# through freed memory, so this code should not be used in any situation where
+# an attacker could have access to system memory.  Certain timing attacks
+# are also probably made more feasible because the script runs more slowly
+# than native code, magnifying the effects of taking different branches in
+# the code.
+
+
 # public key asn structure:
 #
 # ASN1_SEQUENCE_cb(RSAPublicKey, rsa_cb) = {

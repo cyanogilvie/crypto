@@ -1,7 +1,25 @@
-namespace eval crypto::blowfish {
-	proc init_key {key} { #<<<
-		namespace path ::tcl::mathop
+# Copyright Cyan Ogilvie <cyan@codeforge.co.za>
+# License terms are the same as the Tcl core
 
+# While I have been careful to adhere to the implementation guidelines as
+# closely as possible, no cryptographic audit has been performed on this code
+# and I make no warrenties as to its correctness or security.  You are
+# encouraged to examine the code yourself or get a qualified cryptographer to
+# audit this code before using it in an application with specific security
+# requirements.
+#
+# In particular it should be noted that key privacy is poor - the limitations
+# of working in a scripting language means that the keys could be leaked
+# through freed memory, so this code should not be used in any situation where
+# an attacker could have access to system memory.  Certain timing attacks
+# are also probably made more feasible because the script runs more slowly
+# than native code, magnifying the effects of taking different branches in
+# the code.
+
+namespace eval crypto::blowfish {
+	namespace path {::tcl::mathop ::tcl::mathfunc}
+
+	proc init_key {key} { #<<<
 		set keylength	[string length $key]
 		if {![<= 4 $keylength 56]} {
 			throw {invalid_keysize} "key length in bytes must be in the range \[4, 56\]"
@@ -291,7 +309,7 @@ namespace eval crypto::blowfish {
 		for {set i 0} {$i < [llength $P]} {incr i} {
 			set a	[lindex $P $i]
 			set o	[expr {$i * 4}]
-			binary scan [string range $cycledkey $o $o+3] I keyportion
+			binary scan $cycledkey @${o}I keyportion
 			lset P $i [expr {$keyportion ^ $a}]
 		}
 
@@ -315,7 +333,7 @@ namespace eval crypto::blowfish {
 			}
 		}
 
-		return [list $P $S]
+		list $P $S
 	}
 
 	#>>>
@@ -344,8 +362,6 @@ namespace eval crypto::blowfish {
 
 	#>>>
 	proc _apply {P S bytes} { #<<<
-		namespace path {::tcl::mathop ::tcl::mathfunc}
-
 		set bytelen	[string length $bytes]
 		if {$bytelen % 8 != 0} {
 			throw {invalid_plaintext_length} "ECB mode requires input to be a multiple of blocksize (64 bits): $bytelen"
@@ -358,27 +374,34 @@ namespace eval crypto::blowfish {
 				lappend oints {*}[_transform_block $P $S $l $r]
 			}
 
-			return [binary format I* $oints]
+			binary format I* $oints
 		} else {
 			# Use a less memory intesive method - the faster one above would
 			# use more than 1.5MB for a 50kb message
 			set O	""
-			for {set o 0} {$o < $bytelen} {incr o 8192} {
-				binary scan [string range $bytes $o $o+8192] Iu* ints
+			set o	0
+			while {$o + $bs <= $bytelen} {
+				binary scan $bytes @${o}Iu2048 ints
 				set oints	{}
 				foreach {l r} $ints {
 					lappend oints	{*}[_transform_block $P $S $l $r]
 				}
 				append O	[binary format I* $oints]
 			}
-			return $O
+			if {$o < $bytelen} {
+				binary scan $bytes @${o}Iu[expr {($bytelen-$o)/4}] ints
+				set oints	{}
+				foreach {l r} $ints {
+					lappend oints	{*}[_transform_block $P $S $l $r]
+				}
+				append O	[binary format I* $oints]
+			}
+			set O
 		}
 	}
 
 	#>>>
 	proc _apply_cbc_e {P S bytes iv} { #<<<
-		namespace path {::tcl::mathop ::tcl::mathfunc}
-
 		if {[binary scan $iv IuIu ivl ivr] != 2} {
 			throw {invalid_iv_length} "Invalid IV length, must be one block (64 bits)"
 		}
@@ -406,7 +429,7 @@ namespace eval crypto::blowfish {
 			# using more than 1.5MB for a 50kb message
 			set O	""
 			for {set o 0} {$o < $bytelen} {incr o 8192} {
-				binary scan [string range $bytes $o $o+8192] Iu* ints
+				binary scan $bytes @${o}Iu[expr {min($bs, $bytelen-$o)/4}] ints
 				set oints	{}
 				foreach {l r} $ints {
 					set l	[^ $l $ivl]
@@ -424,8 +447,6 @@ namespace eval crypto::blowfish {
 
 	#>>>
 	proc _apply_cbc_d {P S bytes iv} { #<<<
-		namespace path {::tcl::mathop ::tcl::mathfunc}
-
 		if {[binary scan $iv IuIu ivl ivr] != 2} {
 			throw {invalid_iv_length} "Invalid IV length, must be one block (64 bits)"
 		}
@@ -454,7 +475,7 @@ namespace eval crypto::blowfish {
 			# using more than 1.5MB for a 50kb message
 			set O	""
 			for {set o 0} {$o < $bytelen} {incr o 8192} {
-				binary scan [string range $bytes $o $o+8192] Iu* ints
+				binary scan $bytes @${o}Iu[expr {min($bs, $bytelen-$o)/4}] ints
 				set oints	{}
 				foreach {l r} $ints {
 					lassign [_transform_block $P $S $l $r] ol or
