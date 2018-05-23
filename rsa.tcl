@@ -1838,6 +1838,11 @@ namespace eval crypto::rsa {
 		set dat	[chan read $h]
 		close $h
 
+		load_asn1_prkey_from_value $dat
+	}
+
+	#>>>
+	proc load_asn1_prkey_from_value {dat} { #<<<
 		try {
 			lsort [dict keys $dat]
 		} on ok {keys} {
@@ -1891,7 +1896,7 @@ namespace eval crypto::rsa {
 				package require asn
 				asn::asnSequence \
 					[asn::asnObjectIdentifier {1 3 14 3 2 26}] \
-					]asn::asnNull]
+					[asn::asnNull]
 			}
 			DigestInfoPrefix {
 				binary decode hex {30 21 30 09 06 05 2b 0e 03 02 1a 05 00 04 14}
